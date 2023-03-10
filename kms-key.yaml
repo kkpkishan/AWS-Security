@@ -12,246 +12,258 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Security: KMS customer managed CMK for AWS services'
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Security: KMS customer managed CMK for AWS services"
 Metadata:
-  'AWS::CloudFormation::Interface':
+  "AWS::CloudFormation::Interface":
     ParameterGroups:
-    - Label:
-        default: 'Parent Stacks'
-      Parameters:
-      - ParentAlertStack
-    - Label:
-        default: 'KMS Parameters'
-      Parameters:
-      - Service
-      - KeySpec	
-      - KeyUsage
+      - Label:
+          default: "Parent Stacks"
+        Parameters:
+          - ParentAlertStack
+      - Label:
+          default: "KMS Parameters"
+        Parameters:
+          - Service
+          - KeySpec
+          - KeyUsage
 Parameters:
   ParentAlertStack:
-    Description: 'Optional but recommended stack name of parent alert stack based on alert.yaml template.'
+    Description: "Optional but recommended stack name of parent alert stack based on alert.yaml template."
     Type: String
-    Default: ''
+    Default: ""
   Service:
-    Description: 'Which AWS service is allowed to use this CMK?'
+    Description: "Which AWS service is allowed to use this CMK?"
     Type: String
     AllowedValues:
-    - 'ALL_SERVICES'
-    - 'S3_PUBLIC_ACCESS'
-    - connect
-    - dms
-    - ssm
-    - ec2
-    - elasticfilesystem
-    - es
-    - kinesis
-    - kinesisvideo
-    - lambda
-    - lex
-    - redshift
-    - rds
-    - secretsmanager
-    - ses
-    - s3
-    - importexport
-    - sqs
-    - workmail
-    - workspaces
-    - dnssec-route53 # Deprecated since v13. Will be removed in v15. Use ROUTE53_DNSSEC instead.
-    - cloudtrail
+      - "ALL_SERVICES"
+      - "S3_PUBLIC_ACCESS"
+      - connect
+      - dms
+      - ssm
+      - ec2
+      - elasticfilesystem
+      - es
+      - kinesis
+      - kinesisvideo
+      - lambda
+      - lex
+      - redshift
+      - rds
+      - secretsmanager
+      - ses
+      - s3
+      - importexport
+      - sqs
+      - workmail
+      - workspaces
+      - dnssec-route53 # Deprecated since v13. Will be removed in v15. Use ROUTE53_DNSSEC instead.
+      - cloudtrail
     Default: ALL_SERVICES
-  KeySpec:	
-    Description: 'Specify the type of the CMK.'	
-    Type: String	
-    AllowedValues:	
-    - SYMMETRIC_DEFAULT	
-    - RSA_2048	
-    - RSA_3072	
-    - RSA_4096	
-    - ECC_NIST_P256	
-    - ECC_NIST_P384	
-    - ECC_NIST_P521	
-    - ECC_SECG_P256K1	
-    Default: SYMMETRIC_DEFAULT	
-  KeyUsage:	
-    Description: 'Which cryptographic operations should the CMK support?'	
-    Type: String	
-    AllowedValues:	
-    - ENCRYPT_DECRYPT	
-    - SIGN_VERIFY	
+  KeySpec:
+    Description: "Specify the type of the CMK."
+    Type: String
+    AllowedValues:
+      - SYMMETRIC_DEFAULT
+      - RSA_2048
+      - RSA_3072
+      - RSA_4096
+      - ECC_NIST_P256
+      - ECC_NIST_P384
+      - ECC_NIST_P521
+      - ECC_SECG_P256K1
+    Default: SYMMETRIC_DEFAULT
+  KeyUsage:
+    Description: "Which cryptographic operations should the CMK support?"
+    Type: String
+    AllowedValues:
+      - ENCRYPT_DECRYPT
+      - SIGN_VERIFY
     Default: ENCRYPT_DECRYPT
 Conditions:
-  HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
-  HasServiceAllServices: !Equals [!Ref Service, 'ALL_SERVICES']
-  HasServiceS3PublicAccess: !Equals [!Ref Service, 'S3_PUBLIC_ACCESS']
-  HasServiceRoute53Dnssec: !Or [!Equals [!Ref Service, 'ROUTE53_DNSSEC'], !Equals [!Ref Service, 'dnssec-route53']]	
-  HasServiceCloudTrail: !Equals [!Ref Service, 'CLOUDTRAIL']	
-  HasService: !Not [!Or [!Condition HasServiceAllServices, !Condition HasServiceS3PublicAccess, !Condition HasServiceRoute53Dnssec, !Condition HasServiceCloudTrail]]	
-  HasSymmetricKey: !Equals [!Ref KeySpec, 'SYMMETRIC_DEFAULT']
+  HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, ""]]
+  HasServiceAllServices: !Equals [!Ref Service, "ALL_SERVICES"]
+  HasServiceS3PublicAccess: !Equals [!Ref Service, "S3_PUBLIC_ACCESS"]
+  HasServiceRoute53Dnssec:
+    !Or [
+      !Equals [!Ref Service, "ROUTE53_DNSSEC"],
+      !Equals [!Ref Service, "dnssec-route53"],
+    ]
+  HasServiceCloudTrail: !Equals [!Ref Service, "CLOUDTRAIL"]
+  HasService:
+    !Not [
+      !Or [
+        !Condition HasServiceAllServices,
+        !Condition HasServiceS3PublicAccess,
+        !Condition HasServiceRoute53Dnssec,
+        !Condition HasServiceCloudTrail,
+      ],
+    ]
+  HasSymmetricKey: !Equals [!Ref KeySpec, "SYMMETRIC_DEFAULT"]
 Resources:
   Key:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
-    Type: 'AWS::KMS::Key'
+    Type: "AWS::KMS::Key"
     Properties:
-      EnableKeyRotation: !If [HasSymmetricKey, true, false]	
-      KeySpec: !Ref KeySpec	
+      EnableKeyRotation: !If [HasSymmetricKey, true, false]
+      KeySpec: !Ref KeySpec
       KeyUsage: !Ref KeyUsage
       KeyPolicy:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
-        - Effect: Allow
-          Principal:
-            AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
-          Action: 'kms:*'
-          Resource: '*'
-        - !If	
-          - HasService	
-          - Effect: Allow	
-            Principal:	
-              AWS: '*'	
-            Action:	
-            - 'kms:Encrypt'	
-            - 'kms:Decrypt'	
-            - 'kms:ReEncrypt*'	
-            - 'kms:GenerateDataKey*'	
-            - 'kms:CreateGrant'	
-            - 'kms:ListGrants'	
-            - 'kms:DescribeKey'	
-            Resource: '*'	
-            Condition:	
-              StringEquals:	
-                'kms:CallerAccount': !Ref 'AWS::AccountId'	
-                'kms:ViaService': !Sub '${Service}.${AWS::Region}.amazonaws.com'	
-          - !Ref 'AWS::NoValue'	
-        - !If	
-          - HasServiceAllServices	
-          - Effect: Allow	
-            Principal:	
-              AWS: '*'	
-            Action:	
-            - 'kms:Encrypt'	
-            - 'kms:Decrypt'	
-            - 'kms:ReEncrypt*'	
-            - 'kms:GenerateDataKey*'	
-            - 'kms:CreateGrant'	
-            - 'kms:ListGrants'	
-            - 'kms:DescribeKey'	
-            Resource: '*'	
-            Condition:	
-              StringEquals:	
-                'kms:CallerAccount': !Ref 'AWS::AccountId'	
-          - !Ref 'AWS::NoValue'
-        - Effect: Allow
-          Principal:
-            AWS: '*'
-          Action:
-          - 'kms:Encrypt'
-          - 'kms:Decrypt'
-          - 'kms:ReEncrypt*'
-          - 'kms:GenerateDataKey*'
-          - 'kms:CreateGrant'
-          - 'kms:ListGrants'
-          - 'kms:DescribeKey'
-          Resource: '*'
-          Condition:
-            StringEquals: !If
-            - HasServiceAllServices
-            - 'kms:CallerAccount': !Ref 'AWS::AccountId'
-            - 'kms:CallerAccount': !Ref 'AWS::AccountId'
-              'kms:ViaService': !Sub '${Service}.${AWS::Region}.amazonaws.com'
-        - !If
-          - HasServiceS3PublicAccess
           - Effect: Allow
             Principal:
-              AWS: '*'
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - !If
+            - HasService
+            - Effect: Allow
+              Principal:
+                AWS: "*"
+              Action:
+                - "kms:Encrypt"
+                - "kms:Decrypt"
+                - "kms:ReEncrypt*"
+                - "kms:GenerateDataKey*"
+                - "kms:CreateGrant"
+                - "kms:ListGrants"
+                - "kms:DescribeKey"
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  "kms:CallerAccount": !Ref "AWS::AccountId"
+                  "kms:ViaService": !Sub "${Service}.${AWS::Region}.amazonaws.com"
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasServiceAllServices
+            - Effect: Allow
+              Principal:
+                AWS: "*"
+              Action:
+                - "kms:Encrypt"
+                - "kms:Decrypt"
+                - "kms:ReEncrypt*"
+                - "kms:GenerateDataKey*"
+                - "kms:CreateGrant"
+                - "kms:ListGrants"
+                - "kms:DescribeKey"
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  "kms:CallerAccount": !Ref "AWS::AccountId"
+            - !Ref "AWS::NoValue"
+          - Effect: Allow
+            Principal:
+              AWS: "*"
             Action:
-            - 'kms:Decrypt'
-            Resource: '*'
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:GenerateDataKey*"
+              - "kms:CreateGrant"
+              - "kms:ListGrants"
+              - "kms:DescribeKey"
+            Resource: "*"
             Condition:
-              StringEquals:
-                'kms:ViaService': !Sub 's3.${AWS::Region}.amazonaws.com'
-          - !Ref 'AWS::NoValue'
-        - !If	
-          - HasServiceRoute53Dnssec	
-          - Effect: Allow	
-            Principal:	
-              Service: 'dnssec-route53.amazonaws.com'	
-            Action:	
-            - 'kms:DescribeKey'	
-            - 'kms:GetPublicKey'	
-            - 'kms:Sign'	
-            Resource: '*'	
-          - !Ref 'AWS::NoValue'	
-        - !If	
-          - HasServiceRoute53Dnssec	
-          - Effect: Allow	
-            Principal:	
-              Service: 'dnssec-route53.amazonaws.com'	
-            Action:	
-            - 'kms:CreateGrant'	
-            Resource: '*'	
-            Condition:	
-              Bool:	
-                'kms:GrantIsForAWSResource': true	
-          - !Ref 'AWS::NoValue'	
-        - !If	
-          - HasServiceCloudTrail	
-          - Effect: Allow # https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-kms-key-policy-for-cloudtrail.html#create-kms-key-policy-for-cloudtrail-encrypt	
-            Principal:	
-              Service: 'cloudtrail.amazonaws.com'	
-            Action:	
-            - 'kms:GenerateDataKey*'	
-            Resource: '*'	
-            Condition:	
-              StringLike:	
-                'kms:EncryptionContext:aws:cloudtrail:arn': !Sub 'arn:aws:cloudtrail:*:${AWS::AccountId}:trail/*'	
-          - !Ref 'AWS::NoValue'
+              StringEquals: !If
+                - HasServiceAllServices
+                - "kms:CallerAccount": !Ref "AWS::AccountId"
+                - "kms:CallerAccount": !Ref "AWS::AccountId"
+                  "kms:ViaService": !Sub "${Service}.${AWS::Region}.amazonaws.com"
+          - !If
+            - HasServiceS3PublicAccess
+            - Effect: Allow
+              Principal:
+                AWS: "*"
+              Action:
+                - "kms:Decrypt"
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  "kms:ViaService": !Sub "s3.${AWS::Region}.amazonaws.com"
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasServiceRoute53Dnssec
+            - Effect: Allow
+              Principal:
+                Service: "dnssec-route53.amazonaws.com"
+              Action:
+                - "kms:DescribeKey"
+                - "kms:GetPublicKey"
+                - "kms:Sign"
+              Resource: "*"
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasServiceRoute53Dnssec
+            - Effect: Allow
+              Principal:
+                Service: "dnssec-route53.amazonaws.com"
+              Action:
+                - "kms:CreateGrant"
+              Resource: "*"
+              Condition:
+                Bool:
+                  "kms:GrantIsForAWSResource": true
+            - !Ref "AWS::NoValue"
+          - !If
+            - HasServiceCloudTrail
+            - Effect: Allow # https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-kms-key-policy-for-cloudtrail.html#create-kms-key-policy-for-cloudtrail-encrypt
+              Principal:
+                Service: "cloudtrail.amazonaws.com"
+              Action:
+                - "kms:GenerateDataKey*"
+              Resource: "*"
+              Condition:
+                StringLike:
+                  "kms:EncryptionContext:aws:cloudtrail:arn": !Sub "arn:aws:cloudtrail:*:${AWS::AccountId}:trail/*"
+            - !Ref "AWS::NoValue"
   KeyAlias:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
-    Type: 'AWS::KMS::Alias'
+    Type: "AWS::KMS::Alias"
     Properties:
-      AliasName: !Sub 'alias/${AWS::StackName}'
+      AliasName: !Sub "alias/${AWS::StackName}"
       TargetKeyId: !Ref Key
   DeletionNotification:
     Condition: HasAlertTopic
-    Type: 'AWS::Events::Rule'
+    Type: "AWS::Events::Rule"
     Properties:
       EventPattern:
         source:
-        - 'aws.kms'
-        'detail-type':
-        - 'AWS API Call via CloudTrail'
+          - "aws.kms"
+        "detail-type":
+          - "AWS API Call via CloudTrail"
         resources:
-        - !GetAtt Key.Arn
+          - !GetAtt Key.Arn
         detail:
           eventSource:
-          - 'kms.amazonaws.com'
-          'eventName':
-          - ScheduleKeyDeletion
-          - DisableKey
+            - "kms.amazonaws.com"
+          "eventName":
+            - ScheduleKeyDeletion
+            - DisableKey
       State: ENABLED
       Targets:
-      - Arn: {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
-        Id: rule
+        - Arn: { "Fn::ImportValue": !Sub "${ParentAlertStack}-TopicARN" }
+          Id: rule
 Outputs:
   TemplateID:
-    Description: 'Template id.'
-    Value: 'kms-key'
+    Description: "Template id."
+    Value: "kms-key"
   TemplateVersion:
-    Description: 'Template version.'
-    Value: '__VERSION__'
+    Description: "Template version."
+    Value: "__VERSION__"
   StackName:
-    Description: 'Stack name.'
-    Value: !Sub '${AWS::StackName}'
+    Description: "Stack name."
+    Value: !Sub "${AWS::StackName}"
   KeyId:
-    Description: 'Key id.'
+    Description: "Key id."
     Value: !Ref Key
     Export:
-      Name: !Sub '${AWS::StackName}-KeyId'
+      Name: !Sub "${AWS::StackName}-KeyId"
   KeyArn:
-    Description: 'Key ARN.'
-    Value: !GetAtt 'Key.Arn'
+    Description: "Key ARN."
+    Value: !GetAtt "Key.Arn"
     Export:
-      Name: !Sub '${AWS::StackName}-KeyArn'
+      Name: !Sub "${AWS::StackName}-KeyArn"

@@ -109,7 +109,33 @@ Parameters:
     Type: String
     Default: 'someone@example.com'
     Description: Enter the email address that will receive the alerts
-
+  WorkloadRegion:
+    Description: AWS region for the workload region
+    Type: String
+    Default: ap-south-1
+    AllowedValues:
+      - ap-east-1
+      - ap-northeast-1
+      - ap-northeast-2
+      - ap-northeast-3
+      - ap-south-1
+      - ap-southeast-1
+      - ap-southeast-2
+      - ca-central-1
+      - cn-north-1
+      - cn-northwest-1
+      - eu-central-1
+      - eu-north-1
+      - eu-south-1
+      - eu-west-1
+      - eu-west-2
+      - eu-west-3
+      - me-south-1
+      - sa-east-1
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
 Conditions:
   ConfigEnabled: !Equals
     - !Ref Config
@@ -498,6 +524,31 @@ Resources:
       AlarmDescription: 'CloudTrail: usage of root account/user detected'
       Namespace: !Ref 'AWS::StackName'
       MetricName: RootUserActivityCount
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      AlarmActions:
+      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+      TreatMissingData: notBreaching
+  UnauthorizedOperationRegionMetricFilter: 
+    Condition: HasAlertTopic
+    Type: 'AWS::Logs::MetricFilter'
+    Properties:
+      FilterPattern: !Sub "{ ($.eventType = \"AwsApiCall\") && ($.awsRegion != \"${WorkloadRegion}\") }"
+      LogGroupName: !Ref TrailLogGroup
+      MetricTransformations:
+      - MetricValue: '1'
+        MetricNamespace: !Ref 'AWS::StackName'
+        MetricName: 'UnauthorizedOperationRegionCount'
+  UnauthorizedOperationRegionAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'CloudTrail:  Unauthorized Operation detected in non-workload Region'
+      Namespace: !Ref 'AWS::StackName'
+      MetricName: UnauthorizedOperationRegionCount
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
