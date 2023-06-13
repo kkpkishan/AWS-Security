@@ -537,7 +537,7 @@ Resources:
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: !Sub "{ ($.eventType = \"AwsApiCall\") && ($.awsRegion != \"${WorkloadRegion}\") }"
-      LogGroupName: !Ref TrailLogGroup
+      LogGroupName: !Ref CloudTrailCWLogsGroup
       MetricTransformations:
       - MetricValue: '1'
         MetricNamespace: !Ref 'AWS::StackName'
