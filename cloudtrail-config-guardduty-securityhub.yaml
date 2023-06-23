@@ -486,7 +486,7 @@ Resources:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
-      FilterPattern: '{($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes")}'
+      FilterPattern: '{($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") && ($.userIdentity.type != "AssumedRole")}'
       LogGroupName: !Ref CloudTrailCWLogsGroup
       MetricTransformations:
       - MetricValue: '1'
