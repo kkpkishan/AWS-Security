@@ -60,6 +60,7 @@ Parameters:
       - dnssec-route53 # Deprecated since v13. Will be removed in v15. Use ROUTE53_DNSSEC instead.
       - cloudtrail
       - eks
+      - ecr
     Default: ALL_SERVICES
   KeySpec:
     Description: "Specify the type of the CMK."
