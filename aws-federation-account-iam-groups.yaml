@@ -1,0 +1,150 @@
+---
+# Copyright 2023 Electromech Cloudtech Pvt. Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 
+  This is a  template to help  get started on AWS Cross Account Roles. By default all of the users in these groups only 
+  have IAM permissions to self manage IAM (password, Enable MFA, etc) and assume others (privilege escalation). MFA must be enable
+  to escalate privileges.
+  
+Resources:
+  
+  DeveloperGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: DeveloperGroup
+      ManagedPolicyArns: [!Ref IAMSelfManagePolicy,
+                          !Ref AssumeReadOnlyRolePolicy,
+                          !Ref AssumeDeveloperRolePolicy]
+    
+
+  NetworkAdminGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: NetworkAdminGroup
+      ManagedPolicyArns: [!Ref IAMSelfManagePolicy,
+                          !Ref AssumeReadOnlyRolePolicy,
+                          !Ref AssumeNetworkAdminRolePolicy]
+
+  AWSAdminGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: AWSAdminGroup
+      ManagedPolicyArns: [!Ref IAMSelfManagePolicy,
+                          !Ref AssumeReadOnlyRolePolicy,
+                          !Ref AssumeAWSAdminRolePolicy]
+   
+  IAMSelfManagePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: IAMSelfManagePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:  [
+                "iam:*AccessKey*",
+                "iam:*SSHPublicKey*",
+                "iam:*LoginProfile",
+                "iam:ChangePassword"
+            ]
+          Resource: !Join [ "", [ 'arn:aws:iam:', !Sub ':${AWS::AccountId}:', 'user/${aws:username}'] ]
+        - Effect: Allow
+          Action: [
+                "iam:GetAccountPasswordPolicy",
+                "iam:ListAccount*",
+                "iam:ListUsers",
+                "iam:ListMFADevices",
+                "iam:ListVirtualMFADevices",
+                "iam:GetAccountSummary"]      
+          Resource: '*'
+        - Effect: Allow
+          Action: [               
+                "iam:DeactivateMFADevice",
+                "iam:EnableMFADevice",
+                "iam:ResyncMFADevice"]      
+          Resource: !Join [ "", [ 'arn:aws:iam:', !Sub ':${AWS::AccountId}:', 'user/${aws:username}'] ]
+        - Effect: Allow
+          Action: [              
+                "iam:DeleteVirtualMFADevice",
+                "iam:CreateVirtualMFADevice"]
+          Resource: [
+                !Join [ "", [ 'arn:aws:iam:', !Sub ':${AWS::AccountId}:', 'user/${aws:username}'] ],
+                !Join [ "", [ 'arn:aws:iam:', !Sub ':${AWS::AccountId}:', 'mfa/${aws:username}'] ]                
+            ] 
+
+  AssumeDeveloperRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: AssumeDeveloperRolePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:  [
+                "sts:AssumeRole"
+            ]
+          Resource: !Join [ "", [ 'arn:aws:iam::', '*', ':role/DeveloperRole'] ]
+          Condition:
+            BoolIfExists:
+                aws:MultiFactorAuthPresent: 'true'
+
+
+  AssumeReadOnlyRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: AssumeReadOnlyRolePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:  [
+                "sts:AssumeRole"
+            ]
+          Resource: !Join [ "", [ 'arn:aws:iam::', '*', ':role/ReadOnlyRole'] ]
+          Condition:
+            BoolIfExists:
+                aws:MultiFactorAuthPresent: 'true'
+  
+  AssumeNetworkAdminRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: AssumeNetworkAdminRolePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:  [
+                "sts:AssumeRole"
+            ]
+          Resource: !Join [ "", [ 'arn:aws:iam::', '*', ':role/NetworkAdminRole'] ]
+          Condition:
+            BoolIfExists:
+                aws:MultiFactorAuthPresent: 'true'
+  
+  AssumeAWSAdminRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: AssumeAWSAdminRolePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:  [
+                "sts:AssumeRole"
+            ]
+          Resource: !Join [ "", [ 'arn:aws:iam::', '*', ':role/AWSAdminRole'] ]
+          Condition:
+            BoolIfExists:
+                aws:MultiFactorAuthPresent: 'true'
