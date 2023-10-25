@@ -18,9 +18,13 @@ Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
     - Label:
+        default: 'Parent Stacks'
+      Parameters:
+      - ParentKmsKeyStack
+      - ParentAlertStack
+    - Label:
         default: 'CloudTrail Parameters'
       Parameters:
-      - ParentAlertStack
       - CloudWatchLogsRetentionInDays
       - ExternalTrailBucket
       - LogFilePrefix
@@ -31,6 +35,10 @@ Metadata:
       Parameters:
       - PermissionsBoundary
 Parameters:
+  ParentKmsKeyStack:
+    Description: 'Optional Stack name of parent KMS key stack based on kms-key.yaml template.'
+    Type: String
+    Default: ''
   ParentAlertStack:
     Description: 'Optional but recommended stack name of parent alert stack based on alert.yaml template.'
     Type: String
@@ -87,6 +95,7 @@ Parameters:
       - us-west-1
       - us-west-2
 Conditions:
+  HasKmsKey: !Not [!Equals [!Ref ParentKmsKeyStack, '']]
   HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
   HasPermissionsBoundary: !Not [!Equals [!Ref PermissionsBoundary, '']]
   InternalBucket: !Equals [!Ref ExternalTrailBucket, '']
@@ -149,7 +158,8 @@ Resources:
             Resource: !GetAtt 'TrailLogGroup.Arn'
   TrailTopic:
     Type: 'AWS::SNS::Topic'
-    Properties: {}
+    Properties:
+      KmsMasterKeyId: !If [HasKmsKey, {'Fn::ImportValue': !Sub '${ParentKmsKeyStack}-KeyId'}, !Ref 'AWS::NoValue']
   TrailTopicPolicy:
     Type: 'AWS::SNS::TopicPolicy'
     Properties:

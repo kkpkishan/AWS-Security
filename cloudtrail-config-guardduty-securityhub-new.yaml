@@ -1013,7 +1013,7 @@ Resources:
   SecurityHubSingleAcc:
     Type: 'AWS::SecurityHub::Hub'
     Condition: SecurityHubEnabled
-    DependsOn: ConfigRecorder
+    # DependsOn: ConfigRecorder
 Outputs:
   CloudTrailBucketName:
     Description: S3 bucket for CloudTrail logs
