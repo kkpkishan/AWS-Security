@@ -19,6 +19,10 @@ Description: >-
 
 Parameters:
   #General
+  ParentKmsKeyStack:
+    Description: 'Optional Stack name of parent KMS key stack based on kms-key.yaml template.'
+    Type: String
+    Default: ''
   ParentAlertStack:
     Description: 'Optional but recommended stack name of parent alert stack based on https://github.com/kkpkishan/AWS-SNS/blob/master/alert.yaml template.'
     Type: String
@@ -160,6 +164,7 @@ Conditions:
     - !Ref CloudTrailLogS3DataEvents
     - 'Yes'
   HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
+  HasKmsKey: !Not [!Equals [!Ref ParentKmsKeyStack, '']]
 
 Metadata:
   'AWS::CloudFormation::Interface':
@@ -986,6 +991,7 @@ Resources:
     Condition: GuardDutyEnabled
     Properties:
       TopicName: GuardDuty-Email
+      KmsMasterKeyId: !If [HasKmsKey, {'Fn::ImportValue': !Sub '${ParentKmsKeyStack}-KeyId'}, !Ref 'AWS::NoValue']
   GuardDutyCWEvent:
     Type: 'AWS::Events::Rule'
     #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-events-rule-target.html
@@ -1013,7 +1019,7 @@ Resources:
   SecurityHubSingleAcc:
     Type: 'AWS::SecurityHub::Hub'
     Condition: SecurityHubEnabled
-    # DependsOn: ConfigRecorder
+    DependsOn: ConfigRecorder
 Outputs:
   CloudTrailBucketName:
     Description: S3 bucket for CloudTrail logs

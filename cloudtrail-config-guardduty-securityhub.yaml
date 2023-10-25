@@ -23,6 +23,10 @@ Parameters:
     Description: 'Optional but recommended stack name of parent alert stack based on https://github.com/kkpkishan/AWS-SNS/blob/master/alert.yaml template.'
     Type: String
     Default: ''
+  ParentKmsKeyStack:
+    Description: 'Optional Stack name of parent KMS key stack based on kms-key.yaml template.'
+    Type: String
+    Default: ''
   Config:
     Type: String
     Description: 'Configure AWS Config. If you have previously enabled Config select No.'
@@ -160,6 +164,7 @@ Conditions:
     - !Ref CloudTrailLogS3DataEvents
     - 'Yes'
   HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
+  HasKmsKey: !Not [!Equals [!Ref ParentKmsKeyStack, '']]
 
 Metadata:
   'AWS::CloudFormation::Interface':
@@ -986,6 +991,7 @@ Resources:
     Condition: GuardDutyEnabled
     Properties:
       TopicName: GuardDuty-Email
+      KmsMasterKeyId: !If [HasKmsKey, {'Fn::ImportValue': !Sub '${ParentKmsKeyStack}-KeyId'}, !Ref 'AWS::NoValue']
   GuardDutyCWEvent:
     Type: 'AWS::Events::Rule'
     #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-events-rule-target.html
