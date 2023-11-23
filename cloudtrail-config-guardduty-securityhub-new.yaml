@@ -512,6 +512,67 @@ Resources:
       AlarmActions:
       - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
+  MetricFilterCloudTrailChange:
+    Condition: HasAlertTopic
+    Type: 'AWS::Logs::MetricFilter'
+    Properties:
+      FilterPattern: >-
+        {($.eventSource = cloudtrail.amazonaws.com) && (($.eventName !=
+        Describe*) && ($.eventName != Get*) && ($.eventName != Lookup*) &&
+        ($.eventName != List*))}
+      LogGroupName: !Ref CloudTrailCWLogsGroup
+      MetricTransformations:
+        - MetricName: CloudTrailChangeCount
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricValue: '1'
+
+  MetricFilterIAMCreateAccessKey:
+    Condition: HasAlertTopic
+    Type: 'AWS::Logs::MetricFilter'
+    Properties:
+      FilterPattern: '{($.eventName=CreateAccessKey)}'
+      LogGroupName: !Ref CloudTrailCWLogsGroup
+      MetricTransformations:
+        - MetricName: NewAccessKeyCreated
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricValue: '1'
+
+  CloudWatchAlarmCloudTrailChange:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      ActionsEnabled: true
+      AlarmActions:
+      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+      AlarmDescription: >-
+        Warning: Changes to CloudTrail log configuration detected in this
+        account.
+      AlarmName: cloudtrail-change-alarm
+      MetricName: CloudTrailChangeCount
+      Namespace: CloudTrailMetrics
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
+  CloudWatchAlarmIAMCreateAccessKey:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      ActionsEnabled: true
+      AlarmActions:
+      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+      AlarmDescription: >-
+        Warning: New IAM access key was created. Please be sure this action was
+        neccessary.
+      AlarmName: iam-create-access-key-alarm
+      MetricName: NewAccessKeyCreated
+      Namespace: CloudTrailMetrics
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
   RootUserActivityMetricFilter: # CIS 1.1 & 3.3
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
