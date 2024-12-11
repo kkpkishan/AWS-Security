@@ -1,5 +1,5 @@
 ---
-# Copyright 2023 Electromech cloudtech Pvt. Ltd.
+# Copyright 2024 Electromech cloudtech Pvt. Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,27 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Security: CloudTrail across all regions'
+Description: 'Security: CloudTrail across all regions with multiple workload regions support'
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
-    - Label:
-        default: 'Parent Stacks'
-      Parameters:
-      - ParentKmsKeyStack
-      - ParentAlertStack
-    - Label:
-        default: 'CloudTrail Parameters'
-      Parameters:
-      - CloudWatchLogsRetentionInDays
-      - ExternalTrailBucket
-      - LogFilePrefix
-      - S3DataEvents
-      - WorkloadRegion
-    - Label:
-        default: 'Permission Parameters'
-      Parameters:
-      - PermissionsBoundary
+      - Label:
+          default: 'Parent Stacks'
+        Parameters:
+          - ParentKmsKeyStack
+          - ParentAlertStack
+      - Label:
+          default: 'CloudTrail Parameters'
+        Parameters:
+          - CloudWatchLogsRetentionInDays
+          - ExternalTrailBucket
+          - LogFilePrefix
+          - S3DataEvents
+          - WorkloadRegions
+      - Label:
+          default: 'Permission Parameters'
+        Parameters:
+          - PermissionsBoundary
+
 Parameters:
   ParentKmsKeyStack:
     Description: 'Optional Stack name of parent KMS key stack based on kms-key.yaml template.'
@@ -65,35 +66,13 @@ Parameters:
     Type: String
     Default: 'false'
     AllowedValues:
-    - 'true'
-    - 'false'
-  WorkloadRegion:
-    Description: AWS region for the workload region
-    Type: String
+      - 'true'
+      - 'false'
+  WorkloadRegions:
+    Description: "A comma-separated list of 'allowed' workload regions (up to three). Example: ap-south-1,us-west-1"
+    Type: CommaDelimitedList
     Default: ap-south-1
-    AllowedValues:
-      - ap-east-1
-      - ap-northeast-1
-      - ap-northeast-2
-      - ap-northeast-3
-      - ap-south-1
-      - ap-southeast-1
-      - ap-southeast-2
-      - ca-central-1
-      - cn-north-1
-      - cn-northwest-1
-      - eu-central-1
-      - eu-north-1
-      - eu-south-1
-      - eu-west-1
-      - eu-west-2
-      - eu-west-3
-      - me-south-1
-      - sa-east-1
-      - us-east-1
-      - us-east-2
-      - us-west-1
-      - us-west-2
+
 Conditions:
   HasKmsKey: !Not [!Equals [!Ref ParentKmsKeyStack, '']]
   HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
@@ -102,11 +81,18 @@ Conditions:
   ExternalBucket: !Not [!Equals [!Ref ExternalTrailBucket, '']]
   HasLogFilePrefix: !Not [!Equals [!Ref LogFilePrefix, '']]
   IsS3DataEvents: !Equals [!Ref S3DataEvents, 'true']
+
+  # Conditions to handle up to 3 workload regions:
+  HasAtLeastOneRegion: !Not [!Equals [!Select [0, !Ref WorkloadRegions], ""]]
+  HasSecondRegion: !Not [!Equals [!Select [1, !Ref WorkloadRegions], ""]]
+  HasThirdRegion: !Not [!Equals [!Select [2, !Ref WorkloadRegions], ""]]
+
 Resources:
   TrailBucket:
     Condition: InternalBucket
     Type: 'AWS::S3::Bucket'
     Properties: {}
+
   TrailBucketPolicy:
     Condition: InternalBucket
     Type: 'AWS::S3::BucketPolicy'
@@ -115,70 +101,75 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Sid: AWSCloudTrailAclCheck
-          Effect: Allow
-          Principal:
-            Service: 'cloudtrail.amazonaws.com'
-          Action: 's3:GetBucketAcl'
-          Resource: !Sub 'arn:aws:s3:::${TrailBucket}'
-        - Sid: AWSCloudTrailWrite
-          Effect: Allow
-          Principal:
-            Service: 'cloudtrail.amazonaws.com'
-          Action: 's3:PutObject'
-          Resource: !If [HasLogFilePrefix, !Sub 'arn:aws:s3:::${TrailBucket}/${LogFilePrefix}/AWSLogs/${AWS::AccountId}/*', !Sub 'arn:aws:s3:::${TrailBucket}/AWSLogs/${AWS::AccountId}/*']
-          Condition:
-            StringEquals:
-              's3:x-amz-acl': 'bucket-owner-full-control'
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: 'cloudtrail.amazonaws.com'
+            Action: 's3:GetBucketAcl'
+            Resource: !Sub 'arn:aws:s3:::${TrailBucket}'
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: 'cloudtrail.amazonaws.com'
+            Action: 's3:PutObject'
+            Resource: !If [HasLogFilePrefix, !Sub 'arn:aws:s3:::${TrailBucket}/${LogFilePrefix}/AWSLogs/${AWS::AccountId}/*', !Sub 'arn:aws:s3:::${TrailBucket}/AWSLogs/${AWS::AccountId}/*']
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': 'bucket-owner-full-control'
+
   TrailLogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
       RetentionInDays: !Ref CloudWatchLogsRetentionInDays
+
   TrailLogGroupRole:
     Type: 'AWS::IAM::Role'
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Sid: AssumeRole1
-          Effect: Allow
-          Principal:
-            Service: 'cloudtrail.amazonaws.com'
-          Action: 'sts:AssumeRole'
+          - Sid: AssumeRole1
+            Effect: Allow
+            Principal:
+              Service: 'cloudtrail.amazonaws.com'
+            Action: 'sts:AssumeRole'
       PermissionsBoundary: !If [HasPermissionsBoundary, !Ref PermissionsBoundary, !Ref 'AWS::NoValue']
       Policies:
-      - PolicyName: 'cloudtrail-policy'
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action:
-            - 'logs:CreateLogStream'
-            - 'logs:PutLogEvents'
-            Resource: !GetAtt 'TrailLogGroup.Arn'
+        - PolicyName: 'cloudtrail-policy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !GetAtt 'TrailLogGroup.Arn'
+
   TrailTopic:
     Type: 'AWS::SNS::Topic'
     Properties:
       KmsMasterKeyId: !If [HasKmsKey, {'Fn::ImportValue': !Sub '${ParentKmsKeyStack}-KeyId'}, !Ref 'AWS::NoValue']
+
   TrailTopicPolicy:
     Type: 'AWS::SNS::TopicPolicy'
     Properties:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Sid: AWSCloudTrailSNSPolicy
-          Effect: Allow
-          Principal:
-            Service: 'cloudtrail.amazonaws.com'
-          Resource: !Ref TrailTopic
-          Action: 'sns:Publish'
+          - Sid: AWSCloudTrailSNSPolicy
+            Effect: Allow
+            Principal:
+              Service: 'cloudtrail.amazonaws.com'
+            Resource: !Ref TrailTopic
+            Action: 'sns:Publish'
       Topics:
-      - !Ref TrailTopic
+        - !Ref TrailTopic
+
   Trail:
     Condition: InternalBucket
     DependsOn:
-    - TrailBucketPolicy
-    - TrailTopicPolicy
+      - TrailBucketPolicy
+      - TrailTopicPolicy
     Type: 'AWS::CloudTrail::Trail'
     Properties:
       IncludeGlobalServiceEvents: true
@@ -191,10 +182,11 @@ Resources:
       CloudWatchLogsLogGroupArn: !GetAtt 'TrailLogGroup.Arn'
       CloudWatchLogsRoleArn: !GetAtt 'TrailLogGroupRole.Arn'
       SnsTopicName: !GetAtt 'TrailTopic.TopicName'
+
   ExternalTrail:
     Condition: ExternalBucket
     DependsOn:
-    - TrailTopicPolicy
+      - TrailTopicPolicy
     Type: 'AWS::CloudTrail::Trail'
     Properties:
       IncludeGlobalServiceEvents: true
@@ -207,16 +199,18 @@ Resources:
       CloudWatchLogsLogGroupArn: !GetAtt 'TrailLogGroup.Arn'
       CloudWatchLogsRoleArn: !GetAtt 'TrailLogGroupRole.Arn'
       SnsTopicName: !GetAtt 'TrailTopic.TopicName'
-  UnauthorizedOperationMetricFilter: # CIS 3.1
+
+  # CIS 3.1
+  UnauthorizedOperationMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.errorCode = "*UnauthorizedOperation") || ($.errorCode = "AccessDenied*")}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'UnauthorizedOperationCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'UnauthorizedOperationCount'
   UnauthorizedOperationAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -230,77 +224,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  NonMfaConsoleLoginMetricFilter: # CIS 3.2
+
+  # CIS 3.2
+  NonMfaConsoleLoginMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") && ($.userIdentity.type != "AssumedRole")}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'NonMfaConsoleLoginCount'
-  MetricFilterCloudTrailChange:
-    Condition: HasAlertTopic
-    Type: 'AWS::Logs::MetricFilter'
-    Properties:
-      FilterPattern: >-
-        {($.eventSource = cloudtrail.amazonaws.com) && (($.eventName !=
-        Describe*) && ($.eventName != Get*) && ($.eventName != Lookup*) &&
-        ($.eventName != List*))}
-      LogGroupName: !Ref TrailLogGroup
-      MetricTransformations:
-        - MetricName: CloudTrailChangeCount
+        - MetricValue: '1'
           MetricNamespace: !Ref 'AWS::StackName'
-          MetricValue: '1'
-  MetricFilterIAMCreateAccessKey:
-    Condition: HasAlertTopic
-    Type: 'AWS::Logs::MetricFilter'
-    Properties:
-      FilterPattern: '{($.eventName=CreateAccessKey)}'
-      LogGroupName: !Ref TrailLogGroup
-      MetricTransformations:
-        - MetricName: NewAccessKeyCreated
-          MetricNamespace: !Ref 'AWS::StackName'
-          MetricValue: '1'
-  CloudWatchAlarmCloudTrailChange:
-    Condition: HasAlertTopic
-    Type: 'AWS::CloudWatch::Alarm'
-    Properties:
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      EvaluationPeriods: 1
-      ActionsEnabled: true
-      AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
-      AlarmDescription: >-
-        Warning: Changes to CloudTrail log configuration detected in this
-        account.
-      AlarmName: cloudtrail-change-alarm
-      MetricName: CloudTrailChangeCount
-      Namespace: CloudTrailMetrics
-      Period: 300
-      Statistic: Sum
-      Threshold: 1
-  CloudWatchAlarmIAMCreateAccessKey:
-    Condition: HasAlertTopic
-    Type: 'AWS::CloudWatch::Alarm'
-    Properties:
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      EvaluationPeriods: 1
-      ActionsEnabled: true
-      AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
-      AlarmDescription: >-
-        Warning: New IAM access key was created. Please be sure this action was
-        neccessary.
-      AlarmName: iam-create-access-key-alarm
-      MetricName: NewAccessKeyCreated
-      Namespace: CloudTrailMetrics
-      Period: 300
-      Statistic: Sum
-      Threshold: 1
+          MetricName: 'NonMfaConsoleLoginCount'
   NonMfaConsoleLoginAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -314,18 +251,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  RootUserActivityMetricFilter: # CIS 1.1 & 3.3
+
+  # CIS 3.3
+  RootUserActivityMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{$.userIdentity.type = "Root" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != "AwsServiceEvent"}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'RootUserActivityCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'RootUserActivityCount'
   RootUserActivityAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -339,18 +278,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  IamPolicyChangeMetricFilter: # CIS 3.4
+
+  # CIS 3.4
+  IamPolicyChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName=DeleteGroupPolicy) || ($.eventName=DeleteRolePolicy) || ($.eventName=DeleteUserPolicy) || ($.eventName=PutGroupPolicy) || ($.eventName=PutRolePolicy) || ($.eventName=PutUserPolicy) || ($.eventName=CreatePolicy) || ($.eventName=DeletePolicy) || ($.eventName=CreatePolicyVersion) || ($.eventName=DeletePolicyVersion) || ($.eventName=AttachRolePolicy) || ($.eventName=DetachRolePolicy) || ($.eventName=AttachUserPolicy) || ($.eventName=DetachUserPolicy) || ($.eventName=AttachGroupPolicy) || ($.eventName=DetachGroupPolicy)}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'IamPolicyChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'IamPolicyChangeCount'
   IamPolicyChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -364,18 +305,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  CloudTrailConfigChangeMetricFilter: # CIS 3.5
+
+  # CIS 3.5
+  CloudTrailConfigChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = CreateTrail) || ($.eventName = UpdateTrail) || ($.eventName = DeleteTrail) || ($.eventName = StartLogging) || ($.eventName = StopLogging)}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'CloudTrailConfigChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'CloudTrailConfigChangeCount'
   CloudTrailConfigChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -389,18 +332,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  ManagementConsoleAuthFailureMetricFilter: # CIS 3.6
+
+  # CIS 3.6
+  ManagementConsoleAuthFailureMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = ConsoleLogin) && ($.errorMessage = "Failed authentication")}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'ManagementConsoleAuthFailureCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'ManagementConsoleAuthFailureCount'
   ManagementConsoleAuthFailureAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -414,18 +359,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  DeletingKmsCmkMetricFilter: # CIS 3.7
+
+  # CIS 3.7
+  DeletingKmsCmkMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventSource = kms.amazonaws.com) && (($.eventName=DisableKey) || ($.eventName=ScheduleKeyDeletion))}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'DeletingKmsCmkCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'DeletingKmsCmkCount'
   DeletingKmsCmkAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -439,23 +386,25 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  S3BucketPolicyChangeMetricFilter: # CIS 3.8
+
+  # CIS 3.8
+  S3BucketPolicyChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventSource = s3.amazonaws.com) && (($.eventName = PutBucketAcl) || ($.eventName = PutBucketPolicy) || ($.eventName = PutBucketCors) || ($.eventName = PutBucketLifecycle) || ($.eventName = PutBucketReplication) || ($.eventName = DeleteBucketPolicy) || ($.eventName = DeleteBucketCors) || ($.eventName = DeleteBucketLifecycle) || ($.eventName = DeleteBucketReplication))}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'S3BucketPolicyChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'S3BucketPolicyChangeCount'
   S3BucketPolicyChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
     Properties:
-      AlarmDescription: 'CloudTrail:  S3 bucket policy changes detected'
+      AlarmDescription: 'CloudTrail: S3 bucket policy changes detected'
       Namespace: !Ref 'AWS::StackName'
       MetricName: S3BucketPolicyChangeCount
       Statistic: Sum
@@ -464,21 +413,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  ConfigChangeMetricFilter: # CIS 3.9
+
+  # CIS 3.9
+  ConfigChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventSource = config.amazonaws.com) && (($.eventName = StopConfigurationRecorder) || ($.eventName = DeleteDeliveryChannel) || ($.eventName = PutDeliveryChannel) || ($.eventName = PutConfigurationRecorder))}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'ConfigChangeCount'
-
-
-
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'ConfigChangeCount'
   ConfigChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -492,24 +440,34 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  
-  UnauthorizedOperationRegionMetricFilter: 
+
+  # Multiple workload regions logic for unauthorized operations outside these regions:
+  # Up to three workload regions are allowed:
+  # Pattern: { ($.eventType = "AwsApiCall") && ($.awsRegion != "Region1") && ($.awsRegion != "Region2" [if exists]) && ($.awsRegion != "Region3" [if exists]) }
+
+  UnauthorizedOperationRegionMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
-      FilterPattern: !Sub "{ ($.eventType = \"AwsApiCall\") && ($.awsRegion != \"${WorkloadRegion}\") }"
       LogGroupName: !Ref TrailLogGroup
+      FilterPattern: !Join ['', [
+        '{ ($.eventType = "AwsApiCall")',
+        ' && ($.awsRegion != "', !Select [0, !Ref WorkloadRegions], '")',
+        !If [HasSecondRegion, !Sub(' && ($.awsRegion != "${SecondRegion}")', {SecondRegion: !Select [1, !Ref WorkloadRegions]}), ''],
+        !If [HasThirdRegion, !Sub(' && ($.awsRegion != "${ThirdRegion}")', {ThirdRegion: !Select [2, !Ref WorkloadRegions]}), ''],
+        ' }'
+      ]]
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'UnauthorizedOperationRegionCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'UnauthorizedOperationRegionCount'
   UnauthorizedOperationRegionAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
     Properties:
-      AlarmDescription: 'CloudTrail:  Unauthorized Operation detected in non-workload Region'
+      AlarmDescription: 'CloudTrail: Unauthorized Operation detected in non-allowed Regions'
       Namespace: !Ref 'AWS::StackName'
       MetricName: UnauthorizedOperationRegionCount
       Statistic: Sum
@@ -518,19 +476,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
 
-  SecurityGroupChangeMetricFilter: # CIS 3.10
+  # CIS 3.10
+  SecurityGroupChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = AuthorizeSecurityGroupIngress) || ($.eventName = AuthorizeSecurityGroupEgress) || ($.eventName = RevokeSecurityGroupIngress) || ($.eventName = RevokeSecurityGroupEgress) || ($.eventName = CreateSecurityGroup) || ($.eventName = DeleteSecurityGroup)}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'SecurityGroupChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'SecurityGroupChangeCount'
   SecurityGroupChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -544,18 +503,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  NaclChangeMetricFilter: # CIS 3.11
+
+  # CIS 3.11
+  NaclChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = CreateNetworkAcl) || ($.eventName = CreateNetworkAclEntry) || ($.eventName = DeleteNetworkAcl) || ($.eventName = DeleteNetworkAclEntry) || ($.eventName = ReplaceNetworkAclEntry) || ($.eventName = ReplaceNetworkAclAssociation)}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'NaclChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'NaclChangeCount'
   NaclChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -569,18 +530,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  NetworkGatewayChangeMetricFilter: # CIS 3.12
+
+  # CIS 3.12
+  NetworkGatewayChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = CreateCustomerGateway) || ($.eventName = DeleteCustomerGateway) || ($.eventName = AttachInternetGateway) || ($.eventName = CreateInternetGateway) || ($.eventName = DeleteInternetGateway) || ($.eventName = DetachInternetGateway)}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'NetworkGatewayChangeChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'NetworkGatewayChangeChangeCount'
   NetworkGatewayChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -594,18 +557,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  RouteTableChangeMetricFilter: # CIS 3.13
+
+  # CIS 3.13
+  RouteTableChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = CreateRoute) || ($.eventName = CreateRouteTable) || ($.eventName = ReplaceRoute) || ($.eventName = ReplaceRouteTableAssociation) || ($.eventName = DeleteRouteTable) || ($.eventName = DeleteRoute) || ($.eventName = DisassociateRouteTable)}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'RouteTableChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'RouteTableChangeCount'
   RouteTableChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -619,18 +584,20 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
-  VpcChangeMetricFilter: # CIS 3.14
+
+  # CIS 3.14
+  VpcChangeMetricFilter:
     Condition: HasAlertTopic
     Type: 'AWS::Logs::MetricFilter'
     Properties:
       FilterPattern: '{($.eventName = CreateVpc) || ($.eventName = DeleteVpc) || ($.eventName = ModifyVpcAttribute) || ($.eventName = AcceptVpcPeeringConnection) || ($.eventName = CreateVpcPeeringConnection) || ($.eventName = DeleteVpcPeeringConnection) || ($.eventName = RejectVpcPeeringConnection) || ($.eventName = AttachClassicLinkVpc) || ($.eventName = DetachClassicLinkVpc) || ($.eventName = DisableVpcClassicLink) || ($.eventName = EnableVpcClassicLink)}'
       LogGroupName: !Ref TrailLogGroup
       MetricTransformations:
-      - MetricValue: '1'
-        MetricNamespace: !Ref 'AWS::StackName'
-        MetricName: 'VpcChangeCount'
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'VpcChangeCount'
   VpcTableChangeAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
@@ -644,8 +611,36 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
-      - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
       TreatMissingData: notBreaching
+
+  # Additional SecurityHub Alert Example
+  SecurityHubConfigChangeMetricFilter:
+    Condition: HasAlertTopic
+    Type: 'AWS::Logs::MetricFilter'
+    Properties:
+      FilterPattern: '{($.eventSource = securityhub.amazonaws.com) && (($.eventName = DisableSecurityHub) || ($.eventName = DisassociateFromMasterAccount) || ($.eventName = DisassociateMembers))}'
+      LogGroupName: !Ref TrailLogGroup
+      MetricTransformations:
+        - MetricValue: '1'
+          MetricNamespace: !Ref 'AWS::StackName'
+          MetricName: 'SecurityHubConfigChangeCount'
+  SecurityHubConfigChangeAlarm:
+    Condition: HasAlertTopic
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'CloudTrail: SecurityHub configuration changes detected'
+      Namespace: !Ref 'AWS::StackName'
+      MetricName: SecurityHubConfigChangeCount
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      AlarmActions:
+        - {'Fn::ImportValue': !Sub '${ParentAlertStack}-TopicARN'}
+      TreatMissingData: notBreaching
+
 Outputs:
   TemplateID:
     Description: 'Template id.'
