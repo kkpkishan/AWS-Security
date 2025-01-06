@@ -455,14 +455,15 @@ Resources:
       FilterPattern: !Join ['', [
         '{ ($.eventType = "AwsApiCall")',
         ' && ($.awsRegion != "', !Select [0, !Ref WorkloadRegions], '")',
-        !If [HasSecondRegion, !Sub(' && ($.awsRegion != "${SecondRegion}")', {SecondRegion: !Select [1, !Ref WorkloadRegions]}), ''],
-        !If [HasThirdRegion, !Sub(' && ($.awsRegion != "${ThirdRegion}")', {ThirdRegion: !Select [2, !Ref WorkloadRegions]}), ''],
+        !If [HasSecondRegion, !Join ['', [' && ($.awsRegion != "', !Select [1, !Ref WorkloadRegions], '")']], ''],
+        !If [HasThirdRegion, !Join ['', [' && ($.awsRegion != "', !Select [2, !Ref WorkloadRegions], '")']], ''],
         ' }'
       ]]
       MetricTransformations:
         - MetricValue: '1'
           MetricNamespace: !Ref 'AWS::StackName'
           MetricName: 'UnauthorizedOperationRegionCount'
+
   UnauthorizedOperationRegionAlarm:
     Condition: HasAlertTopic
     Type: 'AWS::CloudWatch::Alarm'
